@@ -54,11 +54,10 @@ llm_ops_ascend/
 
 ## 环境
 
-- Ascend NPU + 匹配的 CANN Toolkit（本机示例：CANN 9.1.0，Ascend910B3）
+- Ascend NPU + 与芯片匹配的 CANN Toolkit
 - Python 3.8+，PyTorch + 配套 `torch_npu`
-- 本机可先 `source /home/xcy/model/proxy.env`（CANN + conda）
 
-`./build.sh` 会从 `/etc/Ascend/ascend_cann_install.info` 读 Toolkit 路径并 `source set_env.sh`。
+先 `source` CANN 的 `set_env.sh`（或本机等价环境脚本），再编译或运行 Python。`./build.sh` 会按系统 CANN 安装信息自动 `source set_env.sh`。
 
 ---
 
@@ -66,16 +65,15 @@ llm_ops_ascend/
 
 ### 1. （按需）编译并安装 ops-transformer
 
-官方 CANN **没有** 对应 `aclnnXxx`，或你要跑 ops-transformer 自己的实现时，才需要这一步。
+官方 CANN **没有** 对应 `aclnnXxx`，或要跑 ops-transformer 自己的实现时，才需要这一步。
 
 ```bash
-source /home/xcy/model/proxy.env   # 或本机 CANN set_env
 cd /path/to/ops-transformer
-bash build.sh --pkg --soc=ascend910b --vendor_name=custom --ops=block_sparse_attention_grad
+bash build.sh --pkg --soc=<soc> --vendor_name=custom --ops=<op_name>
 ./build_out/cann-ops-transformer-custom_linux-*.run
 ```
 
-- `--soc`：芯片，如 `ascend910b`（910B）、`ascend910_93`、`ascend950`。每次只能编一个 SOC。
+- `--soc`：芯片，如 `ascend910b`、`ascend910_93`、`ascend950`。每次只能编一个 SOC。
 - `--ops`：逗号分隔多个算子；不指定则编该仓默认算子集。
 - `--vendor_name`：默认 `custom`，安装目录一般为  
   `${ASCEND_HOME_PATH}/opp/vendors/custom_transformer`
@@ -95,116 +93,28 @@ source ${install_path}/vendors/<vendor>/bin/set_env.bash
 进程已经起来后再改 `LD_LIBRARY_PATH` **对 `dlopen` 无效**。`ASCEND_CUSTOM_OPP_PATH` 由 `set_env.bash` 设置，helper 也会按  
 `${ASCEND_CUSTOM_OPP_PATH}/op_api/lib/libcust_opapi.so` 再搜一遍。
 
-确认符号：
-
-```bash
-nm -D ${ASCEND_HOME_PATH}/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so | grep aclnnBlockSparseAttentionGrad
-```
-
 ### 2. 编译本仓 Python 封装
 
 ```bash
-source /home/xcy/model/proxy.env
 cd /path/to/llm_ops_ascend
-./build.sh Ascend910B3          # 默认即 Ascend910B3
+./build.sh <SOC_VERSION>          # 例：Ascend910B3
 pip3 install --force-reinstall --no-deps output/llm_ops_ascend-*.whl
-python3 ops/block_sparse_attention_grad/tests/block_sparse_attention_grad_test.py
-python3 ops/flash_attention_score_grad/tests/flash_attention_score_grad_test.py
-python3 ops/all_gather_matmul_v2/test.py
 ```
 
-`./build.sh` **只编** `libllm_ops.so` 和 wheel，不编 kernel。参数是 SOC 名（如 `Ascend910B3`），只影响 torch 封装侧；kernel 的 SOC 由 ops-transformer 的 `--soc` 决定。
+`./build.sh` **只编** `libllm_ops.so` 和 wheel，不编 kernel。参数是 SOC 名，只影响 torch 封装侧；kernel 的 SOC 由 ops-transformer 的 `--soc` 决定。各算子 smoke test 在对应 `ops/<op_name>/` 目录下。
 
 ### 3. 调用
 
 输入必须在 NPU 上。
 
 ```python
-import math
-import torch
-import llm_ops   # 会加载 libllm_ops.so，并 import torch_npu
+import llm_ops   # 加载 libllm_ops.so，并 import torch_npu
 
-dq, dk, dv = llm_ops.block_sparse_attention_grad(
-    dout, query, key, value, attention_out, softmax_lse, mask,
-    [64, 64],          # block_shape
-    1,                 # num_key_value_heads
-    actual_seq_lengths=[128],
-    actual_seq_lengths_kv=[128],
-    q_input_layout="BNSD",
-    kv_input_layout="BNSD",
-    scale_value=1.0 / math.sqrt(128),
-)
+result = llm_ops.<op_name>(...)
+# 或 torch.ops.llm_ops.<op_name>(...)
 ```
 
-也可用 `torch.ops.llm_ops.block_sparse_attention_grad(...)`。
-
-`flash_attention_score_grad`：`input_layout` 为 `TND` 时走 `aclnnFlashAttentionUnpaddingScoreGrad`，否则走 `aclnnFlashAttentionScoreGrad`。
-
-```python
-# BNSD
-dq, dk, dv = llm_ops.flash_attention_score_grad(
-    query, key, value, dy, softmax_max, softmax_sum, attention_in,
-    1,  # head_num
-    atten_mask=atten_mask,
-    scale_value=1.0 / math.sqrt(128),
-    input_layout="BNSD",
-)
-
-# TND / varlen：actual_seq_* 为各序列长度的累加和
-dq, dk, dv = llm_ops.flash_attention_score_grad(
-    query, key, value, dy, softmax_max, softmax_sum, attention_in,
-    1,
-    actual_seq_qlen=[128, 256],
-    actual_seq_kvlen=[128, 256],
-    scale_value=1.0 / math.sqrt(128),
-    input_layout="TND",
-)
-```
-
-当前 `block_sparse_attention_grad` 的最小可跑形状（BNSD、fp16）：
-
-| 张量 | dtype | shape |
-|------|--------|--------|
-| query / key / value / dout / attention_out | fp16 或 bf16 | `[B, N, S, D]` |
-| softmax_lse | fp32 | `[B, N, S]` |
-| block_sparse_mask | uint8 | `[B, N, ceil(S/bx), ceil(S_kv/by)]` |
-| block_shape | — | `[bx, by]`，例如 `[64, 64]` |
-
-当前 `flash_attention_score_grad` 的最小可跑形状（fp16）：
-
-**BNSD**（`input_layout="BNSD"`）
-
-| 张量 | dtype | shape |
-|------|--------|--------|
-| query / key / value / dy / attention_in | fp16 或 bf16 | `[B, N, S, D]` |
-| softmax_max / softmax_sum | fp32 | `[B, N, S, 8]` |
-| atten_mask（可选） | uint8 | `[S, S]` |
-
-**TND**（`input_layout="TND"`，须传 `actual_seq_qlen` / `actual_seq_kvlen`）
-
-| 张量 / 参数 | dtype | shape |
-|------|--------|--------|
-| query / dy / attention_in | fp16 或 bf16 | `[T_q, N, D]`，`T_q = actual_seq_qlen[-1]` |
-| key / value | fp16 或 bf16 | `[T_kv, N, D]` |
-| softmax_max / softmax_sum | fp32 | `[T_q, N, 8]` |
-| actual_seq_qlen / actual_seq_kvlen | — | 各序列长度的累加和，如 `[128, 256]` |
-
-`all_gather_matmul_v2`（封装 `aclnnAllGatherMatmulV2`，AllGather + MatMul 融合）。910B 上 `comm_mode` 用 `"aiv"`。`group` 是 HCCL 通信域名（`get_hccl_comm_name`）。`world_size` 仅支持 2/4/8，K 轴范围 `[256, 65535)`。
-
-```python
-output, gather_out = llm_ops.all_gather_matmul_v2(
-    x1, x2, hcom, world_size, comm_mode="aiv",
-)
-```
-
-当前 `all_gather_matmul_v2` 的最小可跑形状（2 卡、fp16、`gather_index=0`）：
-
-| 张量 / 参数 | dtype | shape |
-|------|--------|--------|
-| x1 | fp16 / bf16 | `[M, K]`，K≥256 |
-| x2 | 同 x1 | `[K, N]` |
-| output | 同 x1 | `[M * world_size, N]` |
-| gather_out | 同 x1 | `[M * world_size, K]` |
+参数与约束以上游 ACLNN 头文件和 `ops/<op_name>/` 下的 smoke test 为准。
 
 ---
 
@@ -243,7 +153,7 @@ output, gather_out = llm_ops.all_gather_matmul_v2(
 2. **先设库路径再开 Python。** 否则 `dlopen("libcust_opapi.so")` 失败，会静默用官方 `libopapi.so`。可用 `/proc/<pid>/maps` 看实际映射的是哪份 so。
 3. **layout 字符串** 必须先落到局部 `std::string`，再把 `c_str()` 传给 `EXEC_NPU_CMD`。
 4. **dtype / 可选 mask / layout** 以上游 `ValidateParams` 和 ACLNN 头为准，不要猜。
-5. **SOC 两处要一致：** ops-transformer `--soc=ascend910b` ↔ 本仓 `./build.sh Ascend910B3`。
+5. **SOC 两处要一致：** ops-transformer 的 `--soc` 与本仓 `./build.sh` 的 SOC 对应同一芯片。
 6. 自定义包安装后可用  
    `grep load_priority ${ASCEND_HOME_PATH}/opp/vendors/config.ini`  
    确认 vendor 已写入；没有的话检查 `opp/vendors` 权限后重装。
