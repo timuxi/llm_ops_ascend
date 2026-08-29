@@ -23,20 +23,32 @@ llm_ops_ascend   ──封装────────►  llm_ops.<op>(...)
 
 ```
 llm_ops_ascend/
-├── ops/<op_name>/                 # 每个算子一个目录
-│   ├── <op_name>.h / .cpp         # Torch 绑定
-│   └── test.py                    # 该算子 smoke test
-├── ops/register.cpp               # TORCH_LIBRARY 注册
+├── ops/
+│   ├── register.cpp                              # TORCH_LIBRARY 注册
+│   ├── CMakeLists.txt                            # 自动编 ops/*/*.cpp
+│   ├── all_gather_matmul_v2/
+│   │   ├── all_gather_matmul_v2.h / .cpp
+│   │   └── test.py
+│   ├── block_sparse_attention_grad/
+│   │   ├── block_sparse_attention_grad.h / .cpp
+│   │   └── tests/block_sparse_attention_grad_test.py
+│   └── flash_attention_score_grad/
+│       ├── flash_attention_score_grad.h / .cpp
+│       └── tests/flash_attention_score_grad_test.py
 ├── utils/
-│   ├── torch_aclnn_helper.h       # EXEC_NPU_CMD（不要随意改）
-│   ├── cmake/                     # 找 torch / torch_npu
-│   └── python/                    # wheel 打包（llm_ops 包）
+│   ├── torch_aclnn_helper.h                      # EXEC_NPU_CMD（不要随意改）
+│   ├── cmake/config_envs.cmake                   # 找 torch / torch_npu / CANN
+│   └── python/                                   # wheel 打包
+│       ├── setup.py                              # 包名 llm_ops_ascend，import 仍是 llm_ops
+│       └── llm_ops/__init__.py
 ├── build.sh
 ├── CMakeLists.txt
-└── config.ini                     # 版本号
+├── config.ini                                    # 版本号
+├── requirements.txt
+└── README.md
 ```
 
-`ops/<op_name>/` 只放 Python/Torch 绑定，不要放 kernel 源码。
+`ops/<op_name>/` 只放 Python/Torch 绑定，不要放 kernel 源码。编译产物在 `build/`、`output/`，已 gitignore。
 
 ---
 
@@ -95,9 +107,9 @@ nm -D ${ASCEND_HOME_PATH}/opp/vendors/custom_transformer/op_api/lib/libcust_opap
 source /home/xcy/model/proxy.env
 cd /path/to/llm_ops_ascend
 ./build.sh Ascend910B3          # 默认即 Ascend910B3
-pip3 install --force-reinstall --no-deps output/llm_ops-*.whl
-python3 ops/block_sparse_attention_grad/tests/block_sparse_attention_grad.py
-python3 ops/flash_attention_score_grad/test.py
+pip3 install --force-reinstall --no-deps output/llm_ops_ascend-*.whl
+python3 ops/block_sparse_attention_grad/tests/block_sparse_attention_grad_test.py
+python3 ops/flash_attention_score_grad/tests/flash_attention_score_grad_test.py
 python3 ops/all_gather_matmul_v2/test.py
 ```
 
@@ -200,10 +212,11 @@ output, gather_out = llm_ops.all_gather_matmul_v2(
 
 对照 ops-transformer 的 `op_host/op_api/aclnn_<op>.h` 和 `examples/test_aclnn_*.cpp`。
 
-1. 新建 `ops/<op_name>/`：`<op_name>.h`、`<op_name>.cpp`、`test.py`。
+1. 新建 `ops/<op_name>/`：`<op_name>.h`、`<op_name>.cpp`，以及 smoke test  
+   （`test.py` 或 `tests/<op_name>_test.py`）。
 2. 在 `ops/register.cpp` 里加 schema 和 `m.impl`。
 3. 在 `utils/python/llm_ops/__init__.py` 里导出同名函数。
-4. `./build.sh`，安装 wheel，跑 `ops/<op_name>/test.py`。
+4. `./build.sh`，安装 wheel，跑该算子目录下的 test。
 
 命名与参数：
 
