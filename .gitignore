@@ -1,0 +1,29 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.so
+*.a
+*.o
+
+# Build
+build/
+output/
+dist/
+*.egg-info/
+utils/python/build/
+utils/python/dist/
+utils/python/**/*.egg-info/
+utils/python/llm_ops/lib/
+utils/python/llm_ops/config.ini
+
+# IDE / env
+.vscode/
+.idea/
+.env
+*.swp
+.DS_Store
+
+# Test
+.pytest_cache/
+.coverage
+htmlcov/
