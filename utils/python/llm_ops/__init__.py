@@ -32,6 +32,11 @@ def block_sparse_attention_grad(*args, **kwargs):
     return torch.ops.llm_ops.block_sparse_attention_grad(*args, **kwargs)
 
 
+def flash_attention_score(*args, **kwargs):
+    """Flash attention score forward (BNSD or TND). Returns (attention_out, softmax_max, softmax_sum)."""
+    return torch.ops.llm_ops.flash_attention_score(*args, **kwargs)
+
+
 def flash_attention_score_grad(*args, **kwargs):
     """Flash attention score backward (BNSD or TND). Returns (dq, dk, dv)."""
     return torch.ops.llm_ops.flash_attention_score_grad(*args, **kwargs)
@@ -40,5 +45,6 @@ def flash_attention_score_grad(*args, **kwargs):
 __all__ = [
     "all_gather_matmul_v2",
     "block_sparse_attention_grad",
+    "flash_attention_score",
     "flash_attention_score_grad",
 ]

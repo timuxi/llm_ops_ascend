@@ -32,6 +32,9 @@ llm_ops_ascend/
 │   ├── block_sparse_attention_grad/
 │   │   ├── block_sparse_attention_grad.h / .cpp
 │   │   └── tests/block_sparse_attention_grad_test.py
+│   ├── flash_attention_score/
+│   │   ├── flash_attention_score.h / .cpp
+│   │   └── tests/flash_attention_score_test.py
 │   └── flash_attention_score_grad/
 │       ├── flash_attention_score_grad.h / .cpp
 │       └── tests/flash_attention_score_grad_test.py
@@ -166,5 +169,6 @@ result = llm_ops.<op_name>(...)
 | Python API | ACLNN | 本仓 | C++ |
 |------------|--------|------|-----|
 | `block_sparse_attention_grad` | `aclnnBlockSparseAttentionGrad` | `ops/block_sparse_attention_grad/` | ops-transformer `attention/block_sparse_attention_grad/` |
+| `flash_attention_score` | `aclnnFlashAttentionScore` / `aclnnFlashAttentionVarLenScore`（TND） | `ops/flash_attention_score/` | ops-transformer `attention/flash_attention_score/` |
 | `flash_attention_score_grad` | `aclnnFlashAttentionScoreGrad` / `aclnnFlashAttentionUnpaddingScoreGrad`（TND） | `ops/flash_attention_score_grad/` | ops-transformer `attention/flash_attention_score_grad/` |
 | `all_gather_matmul_v2` | `aclnnAllGatherMatmulV2` | `ops/all_gather_matmul_v2/` | ops-transformer `mc2/all_gather_matmul_v2/` |

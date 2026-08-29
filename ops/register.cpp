@@ -3,6 +3,7 @@
 
 #include "all_gather_matmul_v2/all_gather_matmul_v2.h"
 #include "block_sparse_attention_grad/block_sparse_attention_grad.h"
+#include "flash_attention_score/flash_attention_score.h"
 #include "flash_attention_score_grad/flash_attention_score_grad.h"
 
 namespace {
@@ -22,6 +23,14 @@ TORCH_LIBRARY(llm_ops, m)
         "int mask_type=0, float scale_value=1.0, int pre_tokens=2147483647, "
         "int next_tokens=2147483647) -> (Tensor, Tensor, Tensor)");
     m.def(
+        "flash_attention_score(Tensor query, Tensor key, Tensor value, int head_num, *, "
+        "Tensor? pse_shift=None, Tensor? drop_mask=None, Tensor? padding_mask=None, "
+        "Tensor? atten_mask=None, int[]? prefix=None, "
+        "int[]? actual_seq_qlen=None, int[]? actual_seq_kvlen=None, "
+        "float scale_value=1.0, float keep_prob=1.0, int pre_tokens=2147483647, "
+        "int next_tokens=2147483647, str input_layout=\"BNSD\", int inner_precise=0, "
+        "int sparse_mode=0) -> (Tensor, Tensor, Tensor)");
+    m.def(
         "flash_attention_score_grad(Tensor query, Tensor key, Tensor value, Tensor dy, "
         "Tensor softmax_max, Tensor softmax_sum, Tensor attention_in, int head_num, *, "
         "Tensor? pse_shift=None, Tensor? drop_mask=None, Tensor? padding_mask=None, "
@@ -36,6 +45,7 @@ TORCH_LIBRARY_IMPL(llm_ops, PrivateUse1, m)
 {
     m.impl("all_gather_matmul_v2", TORCH_FN(llm_ops::all_gather_matmul_v2));
     m.impl("block_sparse_attention_grad", TORCH_FN(llm_ops::block_sparse_attention_grad));
+    m.impl("flash_attention_score", TORCH_FN(llm_ops::flash_attention_score));
     m.impl("flash_attention_score_grad", TORCH_FN(llm_ops::flash_attention_score_grad));
 }
 
