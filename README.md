@@ -177,18 +177,12 @@ Q/W 侧两个入口和 weight 预处理：
 
 注意：`wqb_nz` 是 **FRACTAL_NZ 内部格式**，torch_npu 只在 `torch.npu.config.allow_internal_format = True` 时才会真正创建它（Python 包装里已经替 `prepare_*` 设置）；自己造 NZ 权重时要先打开这个开关。
 
-跑法（`--mode precision` 会对比 torch_npu W8A8 golden 和 dense/prequant 一致性）：
+只跑 kernel 对比（裸 msprof，三条链各采一次；`--mode precision` 才做 golden 比对）：
 
 ```bash
-python3 ops/indexer_prologue_qw/tests/perf_indexer_prologue_qw.py \
-    --mode both --T 96 --device 7 --iters 20
-```
-
-kernel 时间（裸 msprof，两条命令分别采）：
-
-```bash
-msprof --output=prof_qw_dense python3 ops/indexer_prologue_qw/tests/perf_indexer_prologue_qw.py --mode perf-dense    --T 96 --device 7 --iters 20
-msprof --output=prof_qw_pre   python3 ops/indexer_prologue_qw/tests/perf_indexer_prologue_qw.py --mode perf-prequant --T 96 --device 7 --iters 20
+msprof --output=prof_qw_base  python3 ops/indexer_prologue_qw/tests/perf_indexer_prologue_qw.py --mode kernel-baseline  --T 96 --device 7 --iters 20
+msprof --output=prof_qw_dense python3 ops/indexer_prologue_qw/tests/perf_indexer_prologue_qw.py --mode kernel-dense     --T 96 --device 7 --iters 20
+msprof --output=prof_qw_pre   python3 ops/indexer_prologue_qw/tests/perf_indexer_prologue_qw.py --mode kernel-prequant  --T 96 --device 7 --iters 20
 ```
 
 ---

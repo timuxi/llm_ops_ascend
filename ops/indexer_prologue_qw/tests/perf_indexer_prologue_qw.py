@@ -9,12 +9,17 @@ fused:
     dense:       llm_ops.indexer_prologue_qw              (7 kernels，含 weight 预处理)
     prequantized: llm_ops.indexer_prologue_qw_prequantized (4 kernels，weight 由调用方持有)
 
-精度判定（--mode precision / both）：
+默认只跑 kernel（配合 msprof 做算子级对比，不输出 wall/精度）：
+
+    msprof --output=prof_base  python3 perf_indexer_prologue_qw.py --mode kernel-baseline
+    msprof --output=prof_dense python3 perf_indexer_prologue_qw.py --mode kernel-dense
+    msprof --output=prof_pre   python3 perf_indexer_prologue_qw.py --mode kernel-prequant
+
+精度判定（仅 --mode precision）：
   - baseline / dense 各自与 torch_npu W8A8 golden 比：q max|diff| <= 1，q_scale/w 逐位
   - baseline vs dense vs prequant 三者逐位一致（同一数值路径）
 
-性能（--mode perf / both）：每次调用后 torch.npu.synchronize()。
-  kernel 时间用裸 msprof 采 op_summary，见 indexer_prologue_qw.md。
+kernel 时间统一用裸 msprof 采 op_summary；`--mode wall` 只保留给需要 wall 的场合。
 
 依赖：
   - ops-transformer 已编包并安装 indexer_prologue_qw（custom_transformer vendor）
@@ -150,8 +155,9 @@ def bench(fn, iters, warmup=3):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode",
-                    choices=["precision", "perf", "perf-baseline", "perf-dense", "perf-prequant", "both"],
-                    default="precision")
+                    choices=["kernel", "kernel-baseline", "kernel-dense", "kernel-prequant",
+                             "precision", "wall"],
+                    default="kernel")
     ap.add_argument("--T", type=int, default=96)
     ap.add_argument("--device", type=int, default=0)
     ap.add_argument("--iters", type=int, default=20)
@@ -194,28 +200,32 @@ def main():
         diff_report("q_scale", qs2, qs, False)
         diff_report("w      ", w2, w, False)
 
-    if args.mode in ("perf", "perf-baseline", "perf-dense", "perf-prequant", "both"):
+    if args.mode.startswith("kernel") or args.mode == "wall":
         wnz, wscale = llm_ops.prepare_indexer_prologue_qw_weight(wqb)
         torch.npu.synchronize()
 
-        times = {}
-        if args.mode in ("perf", "perf-baseline", "both"):
-            times["baseline"] = bench(
-                lambda: run_baseline(x, qr, wqb, ww, sin, cos, args.softmax_scale, bufs), args.iters)
-            print(f"baseline:  {times['baseline']:.3f} us/call (iters={args.iters})")
-        if args.mode in ("perf", "perf-dense", "both"):
-            times["dense"] = bench(
-                lambda: run_dense(x, qr, wqb, ww, sin, cos, args.softmax_scale, q, qs, w), args.iters)
-            print(f"dense:     {times['dense']:.3f} us/call (iters={args.iters})")
-        if args.mode in ("perf", "perf-prequant", "both"):
-            times["prequant"] = bench(
-                lambda: run_prequant(x, qr, wnz, wscale, ww, sin, cos, args.softmax_scale, q2, qs2, w2),
-                args.iters)
-            print(f"prequant:  {times['prequant']:.3f} us/call (iters={args.iters})")
-        if "baseline" in times and "dense" in times:
-            print(f"wall ratio baseline/dense = {times['baseline'] / times['dense']:.3f}")
-        if "dense" in times and "prequant" in times:
-            print(f"wall ratio dense/prequant = {times['dense'] / times['prequant']:.3f}")
+        calls = []
+        if args.mode in ("kernel", "kernel-baseline", "wall"):
+            calls.append(("baseline", lambda: run_baseline(x, qr, wqb, ww, sin, cos,
+                                                           args.softmax_scale, bufs)))
+        if args.mode in ("kernel", "kernel-dense", "wall"):
+            calls.append(("dense", lambda: run_dense(x, qr, wqb, ww, sin, cos,
+                                                     args.softmax_scale, q, qs, w)))
+        if args.mode in ("kernel", "kernel-prequant", "wall"):
+            calls.append(("prequant", lambda: run_prequant(x, qr, wnz, wscale, ww, sin, cos,
+                                                           args.softmax_scale, q2, qs2, w2)))
+
+        for name, fn in calls:
+            if args.mode == "wall":
+                us = bench(fn, args.iters)
+                print(f"{name}: {us:.3f} us/call")
+            else:
+                for _ in range(3):
+                    fn()
+                for _ in range(args.iters):
+                    fn()
+                torch.npu.synchronize()
+                print(f"{name}: {args.iters} iterations done (msprof only)")
 
 
 if __name__ == "__main__":
