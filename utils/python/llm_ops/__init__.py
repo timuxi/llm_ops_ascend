@@ -75,6 +75,29 @@ def scatter_nd_update(*args, **kwargs):
     return torch.ops.llm_ops.scatter_nd_update(*args, **kwargs)
 
 
+def indexer_prologue_qw(*args, **kwargs):
+    """Dense Indexer Q/W prologue: weight prep + Q projection + RoPE + INT8 query quant + W scale.
+
+    q / q_scale / w are caller-preallocated and returned.
+    """
+    return torch.ops.llm_ops.indexer_prologue_qw(*args, **kwargs)
+
+
+def indexer_prologue_qw_prequantized(*args, **kwargs):
+    """Prequantized Indexer Q/W prologue using caller-owned INT8/NZ weight + FP32 scale."""
+    return torch.ops.llm_ops.indexer_prologue_qw_prequantized(*args, **kwargs)
+
+
+def prepare_indexer_prologue_qw_weight(*args, **kwargs):
+    """wqb -> (INT8 FRACTAL_NZ [1280,4096], FP32 [4096]) via DynamicQuant + transpose + FormatCast.
+
+    FRACTAL_NZ is an internal format; torch_npu only creates it while
+    ``torch.npu.config.allow_internal_format`` is enabled.
+    """
+    torch.npu.config.allow_internal_format = True
+    return torch.ops.llm_ops.prepare_indexer_prologue_qw_weight(*args, **kwargs)
+
+
 __all__ = [
     "all_gather_matmul_v2",
     "block_sparse_attention_grad",
@@ -86,4 +109,7 @@ __all__ = [
     "inplace_partial_rotary_mul",
     "dynamic_quant",
     "scatter_nd_update",
+    "indexer_prologue_qw",
+    "indexer_prologue_qw_prequantized",
+    "prepare_indexer_prologue_qw_weight",
 ]

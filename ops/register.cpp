@@ -6,6 +6,7 @@
 #include "flash_attention_score/flash_attention_score.h"
 #include "flash_attention_score_grad/flash_attention_score_grad.h"
 #include "indexer_prologue_k/indexer_prologue_k.h"
+#include "indexer_prologue_qw/indexer_prologue_qw.h"
 
 namespace {
 
@@ -48,6 +49,14 @@ TORCH_LIBRARY(llm_ops, m)
     m.def("inplace_partial_rotary_mul(Tensor(a!) x, Tensor cos, Tensor sin, int start, int end) -> Tensor");
     m.def("dynamic_quant(Tensor x, Tensor(a!) out, Tensor(b!) scale) -> (Tensor, Tensor)");
     m.def("scatter_nd_update(Tensor(a!) var, Tensor indices, Tensor updates) -> Tensor");
+    m.def(
+        "indexer_prologue_qw(Tensor x, Tensor qr, Tensor wqb, Tensor ww, Tensor rope_sin, Tensor rope_cos, "
+        "float softmax_scale, Tensor(a!) q, Tensor(b!) q_scale, Tensor(c!) w) -> (Tensor, Tensor, Tensor)");
+    m.def(
+        "indexer_prologue_qw_prequantized(Tensor x, Tensor qr, Tensor wqb_nz, Tensor wqb_scale, Tensor ww, "
+        "Tensor rope_sin, Tensor rope_cos, float softmax_scale, Tensor(a!) q, Tensor(b!) q_scale, Tensor(c!) w) "
+        "-> (Tensor, Tensor, Tensor)");
+    m.def("prepare_indexer_prologue_qw_weight(Tensor wqb) -> (Tensor, Tensor)");
 }
 
 TORCH_LIBRARY_IMPL(llm_ops, PrivateUse1, m)
@@ -62,6 +71,9 @@ TORCH_LIBRARY_IMPL(llm_ops, PrivateUse1, m)
     m.impl("inplace_partial_rotary_mul", TORCH_FN(llm_ops::inplace_partial_rotary_mul));
     m.impl("dynamic_quant", TORCH_FN(llm_ops::dynamic_quant));
     m.impl("scatter_nd_update", TORCH_FN(llm_ops::scatter_nd_update));
+    m.impl("indexer_prologue_qw", TORCH_FN(llm_ops::indexer_prologue_qw));
+    m.impl("indexer_prologue_qw_prequantized", TORCH_FN(llm_ops::indexer_prologue_qw_prequantized));
+    m.impl("prepare_indexer_prologue_qw_weight", TORCH_FN(llm_ops::prepare_indexer_prologue_qw_weight));
 }
 
 }  // namespace

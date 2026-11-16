@@ -38,10 +38,13 @@ llm_ops_ascend/
 │   ├── flash_attention_score_grad/
 │   │   ├── flash_attention_score_grad.h / .cpp
 │   │   └── tests/flash_attention_score_grad_test.py
-│   └── indexer_prologue_k/
-│       ├── indexer_prologue_k.h / .cpp            # fused 入口（需 ops-transformer 自定义包）
-│       ├── indexer_prologue_baseline.cpp          # 5 个官方算子的基线封装
-│       └── tests/perf_indexer_prologue_k.py
+│   ├── indexer_prologue_k/
+│   │   ├── indexer_prologue_k.h / .cpp            # fused 入口（需 ops-transformer 自定义包）
+│   │   ├── indexer_prologue_baseline.cpp          # 5 个官方算子的基线封装
+│   │   └── tests/perf_indexer_prologue_k.py
+│   └── indexer_prologue_qw/
+│       ├── indexer_prologue_qw.h / .cpp           # dense + prequantized + weight 预处理
+│       └── tests/perf_indexer_prologue_qw.py
 ├── utils/
 │   ├── torch_aclnn_helper.h                      # EXEC_NPU_CMD（不要随意改）
 │   ├── cmake/config_envs.cmake                   # 找 torch / torch_npu / CANN
@@ -152,6 +155,34 @@ msprof --output=prof_fused python3 ops/indexer_prologue_k/tests/perf_indexer_pro
 ```
 
 `--skip=15`（基线 3 warmup × 5 算子）和 `--skip=9`（fused 3 warmup × 3 算子）可用于丢掉 warmup 后再统计。
+
+### IndexerPrologueQW（dense / prequantized）
+
+Q/W 侧两个入口和 weight 预处理：
+
+| Python | ACLNN | kernel 数 | 说明 |
+|---|---|---|---|
+| `llm_ops.indexer_prologue_qw(x, qr, wqb, ww, rope_sin, rope_cos, softmax_scale, q, q_scale, w)` | `aclnnIndexerPrologueQW` | 7 | 每次调用都做 weight DQ + permute + NZ |
+| `llm_ops.indexer_prologue_qw_prequantized(x, qr, wqb_nz, wqb_scale, ww, rope_sin, rope_cos, softmax_scale, q, q_scale, w)` | `aclnnIndexerPrologueQWPrequantized` | 4 | weight 由调用方持有（INT8/FRACTAL_NZ + FP32 scale） |
+| `llm_ops.prepare_indexer_prologue_qw_weight(wqb)` | — | — | `DynamicQuant → transpose/contiguous → NpuFormatCast(29)`，返回 `(wqb_nz, wqb_scale)` |
+
+输出（调用方预分配，三个接口都返回）：`q` INT8 `[T,32,128]`、`q_scale` FP16 `[T,32]`、`w` FP16 `[T,32]`。
+
+注意：`wqb_nz` 是 **FRACTAL_NZ 内部格式**，torch_npu 只在 `torch.npu.config.allow_internal_format = True` 时才会真正创建它（Python 包装里已经替 `prepare_*` 设置）；自己造 NZ 权重时要先打开这个开关。
+
+跑法（`--mode precision` 会对比 torch_npu W8A8 golden 和 dense/prequant 一致性）：
+
+```bash
+python3 ops/indexer_prologue_qw/tests/perf_indexer_prologue_qw.py \
+    --mode both --T 96 --device 7 --iters 20
+```
+
+kernel 时间（裸 msprof，两条命令分别采）：
+
+```bash
+msprof --output=prof_qw_dense python3 ops/indexer_prologue_qw/tests/perf_indexer_prologue_qw.py --mode perf-dense    --T 96 --device 7 --iters 20
+msprof --output=prof_qw_pre   python3 ops/indexer_prologue_qw/tests/perf_indexer_prologue_qw.py --mode perf-prequant --T 96 --device 7 --iters 20
+```
 
 ---
 
