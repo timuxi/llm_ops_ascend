@@ -57,6 +57,9 @@ TORCH_LIBRARY(llm_ops, m)
         "Tensor rope_sin, Tensor rope_cos, float softmax_scale, Tensor(a!) q, Tensor(b!) q_scale, Tensor(c!) w) "
         "-> (Tensor, Tensor, Tensor)");
     m.def("prepare_indexer_prologue_qw_weight(Tensor wqb) -> (Tensor, Tensor)");
+    m.def("permute(Tensor self, int[] dims, Tensor(a!) out) -> Tensor");
+    m.def("npu_format_cast(Tensor src, Tensor(a!) dst) -> Tensor");
+    m.def("quant_matmul_weight_nz(Tensor x1, Tensor x2, Tensor x1_scale, Tensor x2_scale, Tensor(a!) out) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(llm_ops, PrivateUse1, m)
@@ -74,6 +77,9 @@ TORCH_LIBRARY_IMPL(llm_ops, PrivateUse1, m)
     m.impl("indexer_prologue_qw", TORCH_FN(llm_ops::indexer_prologue_qw));
     m.impl("indexer_prologue_qw_prequantized", TORCH_FN(llm_ops::indexer_prologue_qw_prequantized));
     m.impl("prepare_indexer_prologue_qw_weight", TORCH_FN(llm_ops::prepare_indexer_prologue_qw_weight));
+    m.impl("permute", TORCH_FN(llm_ops::permute));
+    m.impl("npu_format_cast", TORCH_FN(llm_ops::npu_format_cast));
+    m.impl("quant_matmul_weight_nz", TORCH_FN(llm_ops::quant_matmul_weight_nz));
 }
 
 }  // namespace

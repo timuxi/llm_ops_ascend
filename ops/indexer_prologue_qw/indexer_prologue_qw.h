@@ -31,6 +31,12 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> indexer_prologue_qw_prequantized(
 // Production weight preparation: DynamicQuant -> transpose/contiguous -> NpuFormatCast(29).
 std::tuple<at::Tensor, at::Tensor> prepare_indexer_prologue_qw_weight(const at::Tensor &wqb);
 
+// Standalone baseline operators (the unfused 7-op chain).
+at::Tensor permute(const at::Tensor &self, at::IntArrayRef dims, const at::Tensor &out);
+at::Tensor npu_format_cast(const at::Tensor &src, const at::Tensor &dst_nz);
+at::Tensor quant_matmul_weight_nz(const at::Tensor &x1, const at::Tensor &x2_nz, const at::Tensor &x1_scale,
+                                  const at::Tensor &x2_scale, const at::Tensor &out);
+
 }  // namespace llm_ops
 
 #endif  // LLM_OPS_INDEXER_PROLOGUE_QW_H

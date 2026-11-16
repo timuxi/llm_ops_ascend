@@ -165,6 +165,13 @@ Q/W 侧两个入口和 weight 预处理：
 | `llm_ops.indexer_prologue_qw(x, qr, wqb, ww, rope_sin, rope_cos, softmax_scale, q, q_scale, w)` | `aclnnIndexerPrologueQW` | 7 | 每次调用都做 weight DQ + permute + NZ |
 | `llm_ops.indexer_prologue_qw_prequantized(x, qr, wqb_nz, wqb_scale, ww, rope_sin, rope_cos, softmax_scale, q, q_scale, w)` | `aclnnIndexerPrologueQWPrequantized` | 4 | weight 由调用方持有（INT8/FRACTAL_NZ + FP32 scale） |
 | `llm_ops.prepare_indexer_prologue_qw_weight(wqb)` | — | — | `DynamicQuant → transpose/contiguous → NpuFormatCast(29)`，返回 `(wqb_nz, wqb_scale)` |
+| `llm_ops.permute(self, dims, out)` | `aclnnPermute` | — | 基线：weight transpose |
+| `llm_ops.npu_format_cast(src, dst)` | `aclnnNpuFormatCast` | — | 基线：ND → NZ，dst 需是 FRACTAL_NZ |
+| `llm_ops.quant_matmul_weight_nz(x1, x2, x1_scale, x2_scale, out)` | `aclnnQuantMatmulWeightNz` | — | 基线：INT8 activation × NZ weight |
+
+`tests/perf_indexer_prologue_qw.py` 现在同时跑三条链做对照：
+**baseline（7 个独立算子，Post 用 torch 参考）** / **dense** / **prequantized**，
+精度要求三者逐位一致。
 
 输出（调用方预分配，三个接口都返回）：`q` INT8 `[T,32,128]`、`q_scale` FP16 `[T,32]`、`w` FP16 `[T,32]`。
 

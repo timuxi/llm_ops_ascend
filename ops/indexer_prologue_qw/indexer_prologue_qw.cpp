@@ -67,6 +67,10 @@ using RunFn = int (*)(void *, uint64_t, aclOpExecutor *, aclrtStream);
 using DenseGetWs = int (*)(const aclTensor *, const aclTensor *, const aclTensor *, const aclTensor *,
                            const aclTensor *, const aclTensor *, double, aclTensor *, aclTensor *, aclTensor *,
                            uint64_t *, aclOpExecutor **);
+using FormatCastGetWs = int (*)(const aclTensor *, aclTensor *, uint64_t *, aclOpExecutor **);
+using QmmNzGetWs = int (*)(const aclTensor *, const aclTensor *, const aclTensor *, const aclTensor *,
+                           const aclTensor *, const aclTensor *, const aclTensor *, const aclTensor *,
+                           const aclTensor *, bool, bool, int64_t, aclTensor *, uint64_t *, aclOpExecutor **);
 using PrequantGetWs = int (*)(const aclTensor *, const aclTensor *, const aclTensor *, const aclTensor *,
                               const aclTensor *, const aclTensor *, const aclTensor *, double, aclTensor *,
                               aclTensor *, aclTensor *, uint64_t *, aclOpExecutor **);
@@ -180,6 +184,57 @@ std::tuple<at::Tensor, at::Tensor> prepare_indexer_prologue_qw_weight(const at::
     TORCH_CHECK(at_npu::native::get_npu_format(weight_nz) == ACL_FORMAT_FRACTAL_NZ,
                 "weight_nz is not FRACTAL_NZ");
     return std::make_tuple(weight_nz, weight_scale);
+}
+
+at::Tensor permute(const at::Tensor &self, at::IntArrayRef dims, const at::Tensor &out)
+{
+    PermuteNd(self, dims, out);
+    return out;
+}
+
+at::Tensor npu_format_cast(const at::Tensor &src, const at::Tensor &dst_nz)
+{
+    static void *getwsAddr = GetOpApiFuncAddr("aclnnNpuFormatCastGetWorkspaceSize");
+    static void *runAddr = GetOpApiFuncAddr("aclnnNpuFormatCast");
+    TORCH_CHECK(getwsAddr != nullptr && runAddr != nullptr, "aclnnNpuFormatCast not found");
+    TORCH_CHECK(at_npu::native::get_npu_format(dst_nz) == ACL_FORMAT_FRACTAL_NZ,
+                "dst must be FRACTAL_NZ (torch.npu.config.allow_internal_format = True)");
+    AclGuard s(src);
+    AclGuard d(dst_nz, true);
+    uint64_t ws = 0;
+    aclOpExecutor *ex = nullptr;
+    auto getws = reinterpret_cast<FormatCastGetWs>(getwsAddr);
+    CheckStatus(getws(s.t, d.t, &ws, &ex), "aclnnNpuFormatCast");
+    RunCommon(runAddr, ws, ex, "aclnnNpuFormatCast");
+    return dst_nz;
+}
+
+at::Tensor quant_matmul_weight_nz(const at::Tensor &x1, const at::Tensor &x2_nz, const at::Tensor &x1_scale,
+                                  const at::Tensor &x2_scale, const at::Tensor &out)
+{
+    static void *getwsAddr = GetOpApiFuncAddr("aclnnQuantMatmulWeightNzGetWorkspaceSize");
+    static void *runAddr = GetOpApiFuncAddr("aclnnQuantMatmulWeightNz");
+    TORCH_CHECK(getwsAddr != nullptr && runAddr != nullptr, "aclnnQuantMatmulWeightNz not found");
+    TORCH_CHECK(at_npu::native::get_npu_format(x2_nz) == ACL_FORMAT_FRACTAL_NZ,
+                "x2 must be FRACTAL_NZ (torch.npu.config.allow_internal_format = True)");
+    TORCH_CHECK(x1.scalar_type() == at::kChar && x2_nz.scalar_type() == at::kChar,
+                "x1/x2 must be int8");
+    TORCH_CHECK(x1_scale.scalar_type() == at::kFloat && x2_scale.scalar_type() == at::kFloat,
+                "scales must be fp32");
+
+    AclGuard t1(x1);
+    AclGuard t2(x2_nz, true);
+    AclGuard ts1(x1_scale);
+    AclGuard ts2(x2_scale);
+    AclGuard to(out);
+    aclTensor *none = nullptr;
+    uint64_t ws = 0;
+    aclOpExecutor *ex = nullptr;
+    auto getws = reinterpret_cast<QmmNzGetWs>(getwsAddr);
+    CheckStatus(getws(t1.t, t2.t, ts1.t, ts2.t, none, none, none, none, none, false, false, 0, to.t, &ws, &ex),
+                "aclnnQuantMatmulWeightNz");
+    RunCommon(runAddr, ws, ex, "aclnnQuantMatmulWeightNz");
+    return out;
 }
 
 }  // namespace llm_ops

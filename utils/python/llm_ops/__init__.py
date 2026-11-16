@@ -98,6 +98,21 @@ def prepare_indexer_prologue_qw_weight(*args, **kwargs):
     return torch.ops.llm_ops.prepare_indexer_prologue_qw_weight(*args, **kwargs)
 
 
+def permute(*args, **kwargs):
+    """aclnnPermute; out is caller-preallocated and returned."""
+    return torch.ops.llm_ops.permute(*args, **kwargs)
+
+
+def npu_format_cast(*args, **kwargs):
+    """aclnnNpuFormatCast; dst must be a FRACTAL_NZ tensor (allow_internal_format)."""
+    return torch.ops.llm_ops.npu_format_cast(*args, **kwargs)
+
+
+def quant_matmul_weight_nz(*args, **kwargs):
+    """aclnnQuantMatmulWeightNz: INT8 activation x FRACTAL_NZ weight -> bf16."""
+    return torch.ops.llm_ops.quant_matmul_weight_nz(*args, **kwargs)
+
+
 __all__ = [
     "all_gather_matmul_v2",
     "block_sparse_attention_grad",
@@ -112,4 +127,7 @@ __all__ = [
     "indexer_prologue_qw",
     "indexer_prologue_qw_prequantized",
     "prepare_indexer_prologue_qw_weight",
+    "permute",
+    "npu_format_cast",
+    "quant_matmul_weight_nz",
 ]
