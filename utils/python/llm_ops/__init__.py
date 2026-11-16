@@ -42,9 +42,48 @@ def flash_attention_score_grad(*args, **kwargs):
     return torch.ops.llm_ops.flash_attention_score_grad(*args, **kwargs)
 
 
+def indexer_prologue_k(*args, **kwargs):
+    """Fused Indexer K prologue: projection + RMSNorm + tail RoPE + INT8 quant + paged cache scatter.
+
+    k_cache / k_scale_cache are updated in place and returned.
+    """
+    return torch.ops.llm_ops.indexer_prologue_k(*args, **kwargs)
+
+
+def matmul(*args, **kwargs):
+    """MatMulV2 via aclnnMatmul; out is caller-preallocated and returned."""
+    return torch.ops.llm_ops.matmul(*args, **kwargs)
+
+
+def rms_norm(*args, **kwargs):
+    """RMSNorm via aclnnRmsNorm; out/rstd are caller-preallocated. Returns (out, rstd)."""
+    return torch.ops.llm_ops.rms_norm(*args, **kwargs)
+
+
+def inplace_partial_rotary_mul(*args, **kwargs):
+    """Interleaved partial RoPE on [start, end) of the last dim, in place."""
+    return torch.ops.llm_ops.inplace_partial_rotary_mul(*args, **kwargs)
+
+
+def dynamic_quant(*args, **kwargs):
+    """Per-token INT8 dynamic quant via aclnnDynamicQuantV2. Returns (int8, fp32 scale)."""
+    return torch.ops.llm_ops.dynamic_quant(*args, **kwargs)
+
+
+def scatter_nd_update(*args, **kwargs):
+    """ScatterNdUpdate: var[indices[i]] = updates[i], in place."""
+    return torch.ops.llm_ops.scatter_nd_update(*args, **kwargs)
+
+
 __all__ = [
     "all_gather_matmul_v2",
     "block_sparse_attention_grad",
     "flash_attention_score",
     "flash_attention_score_grad",
+    "indexer_prologue_k",
+    "matmul",
+    "rms_norm",
+    "inplace_partial_rotary_mul",
+    "dynamic_quant",
+    "scatter_nd_update",
 ]

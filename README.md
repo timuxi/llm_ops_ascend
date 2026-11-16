@@ -35,9 +35,13 @@ llm_ops_ascend/
 │   ├── flash_attention_score/
 │   │   ├── flash_attention_score.h / .cpp
 │   │   └── tests/flash_attention_score_test.py
-│   └── flash_attention_score_grad/
-│       ├── flash_attention_score_grad.h / .cpp
-│       └── tests/flash_attention_score_grad_test.py
+│   ├── flash_attention_score_grad/
+│   │   ├── flash_attention_score_grad.h / .cpp
+│   │   └── tests/flash_attention_score_grad_test.py
+│   └── indexer_prologue_k/
+│       ├── indexer_prologue_k.h / .cpp            # fused 入口（需 ops-transformer 自定义包）
+│       ├── indexer_prologue_baseline.cpp          # 5 个官方算子的基线封装
+│       └── tests/perf_indexer_prologue_k.py
 ├── utils/
 │   ├── torch_aclnn_helper.h                      # EXEC_NPU_CMD（不要随意改）
 │   ├── cmake/config_envs.cmake                   # 找 torch / torch_npu / CANN
@@ -118,6 +122,36 @@ result = llm_ops.<op_name>(...)
 ```
 
 参数与约束以上游 ACLNN 头文件和 `ops/<op_name>/` 下的 smoke test 为准。
+
+### IndexerPrologueK 与基线对照
+
+`ops/indexer_prologue_k/` 除 fused 入口外，还把生产基线拆成的 5 个官方算子封成了 torch 接口。
+基线接口的输出由调用方预分配（并原样返回），避免把 allocator 开销算进计时：
+
+| Python | ACLNN | 作用 |
+|---|---|---|
+| `llm_ops.matmul(x, weight, out)` | `aclnnMatmul` | MatMulV2，weight 用 stride 视图转置，不拷贝 |
+| `llm_ops.rms_norm(x, gamma, out, rstd, eps)` | `aclnnRmsNorm` | RMSNorm |
+| `llm_ops.inplace_partial_rotary_mul(x, cos, sin, start, end)` | `aclnnInplacePartialRotaryMul` | interleave 模式 partial RoPE，原地 |
+| `llm_ops.dynamic_quant(x, out, scale)` | `aclnnDynamicQuantV2` | per-token INT8 + fp32 scale |
+| `llm_ops.scatter_nd_update(var, indices, updates)` | `aclnnScatterNdUpdate` | paged cache 写回，原地 |
+| `llm_ops.indexer_prologue_k(latent, wk, gamma, cos, sin, indices, k_cache, k_scale_cache, eps)` | `aclnnIndexerPrologueK` | fused（需 ops-transformer 自定义包） |
+
+跑法（`--check` 会逐字节比对 fused 与基线的 cache/scale）：
+
+```bash
+python3 ops/indexer_prologue_k/tests/perf_indexer_prologue_k.py \
+    --check --mode both --T 96 --nb 22594 --ns 64 --device 7
+```
+
+kernel 时间用裸 `msprof` 采 `op_summary`（两条命令各采一次）：
+
+```bash
+msprof --output=prof_base  python3 ops/indexer_prologue_k/tests/perf_indexer_prologue_k.py --mode baseline --T 96 --nb 22594 --ns 64 --device 7
+msprof --output=prof_fused python3 ops/indexer_prologue_k/tests/perf_indexer_prologue_k.py --mode fused    --T 96 --nb 22594 --ns 64 --device 7
+```
+
+`--skip=15`（基线 3 warmup × 5 算子）和 `--skip=9`（fused 3 warmup × 3 算子）可用于丢掉 warmup 后再统计。
 
 ---
 
